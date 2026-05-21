@@ -214,24 +214,40 @@ function LabelingScreen({
   };
 
   const fetchGlobalStats = useCallback(async () => {
-    const [{ data: allData }, { data: verifiedData }, { count: unassignedCount }] = await Promise.all([
-      supabase.from("ocr_labels").select("class, assigned_to"),
-      supabase.from("ocr_labels").select("class").eq("verified", true),
+    const classes = Object.keys(CLASS_META);
+
+    // Semua count query paralel — tidak tarik data, hanya angka dari DB
+    const [
+      { count: total },
+      { count: verified },
+      { count: unassignedCount },
+      ...perClassCounts
+    ] = await Promise.all([
+      supabase.from("ocr_labels").select("*", { count: "exact", head: true }),
+      supabase.from("ocr_labels").select("*", { count: "exact", head: true }).eq("verified", true),
       supabase.from("ocr_labels").select("*", { count: "exact", head: true }).eq("verified", false).is("assigned_to", null),
+      // per kelas: [total, verified] × 4 kelas = 8 query
+      ...classes.flatMap(cls => [
+        supabase.from("ocr_labels").select("*", { count: "exact", head: true }).eq("class", cls),
+        supabase.from("ocr_labels").select("*", { count: "exact", head: true }).eq("class", cls).eq("verified", true),
+      ]),
     ]);
-    if (!allData) return;
 
     const by_class: Record<string, number> = {};
-    allData.forEach(r => { by_class[r.class] = (by_class[r.class] ?? 0) + 1; });
-
     const verified_by_class: Record<string, number> = {};
-    (verifiedData ?? []).forEach(r => { verified_by_class[r.class] = (verified_by_class[r.class] ?? 0) + 1; });
+    classes.forEach((cls, i) => {
+      by_class[cls]          = perClassCounts[i * 2]?.count     ?? 0;
+      verified_by_class[cls] = perClassCounts[i * 2 + 1]?.count ?? 0;
+    });
 
-    setStats({ total: allData.length, verified: (verifiedData ?? []).length, by_class, verified_by_class });
+    setStats({ total: total ?? 0, verified: verified ?? 0, by_class, verified_by_class });
     setUnassigned(unassignedCount ?? 0);
 
+    // Labeler aktif: ambil assigned_to yang belum verified (max 1000 cukup untuk daftar nama)
+    const { data: activeData } = await supabase
+      .from("ocr_labels").select("assigned_to").eq("verified", false).not("assigned_to", "is", null);
     const counts: Record<string, number> = {};
-    allData.forEach(r => { if (r.assigned_to) counts[r.assigned_to] = (counts[r.assigned_to] ?? 0) + 1; });
+    (activeData ?? []).forEach(r => { if (r.assigned_to) counts[r.assigned_to] = (counts[r.assigned_to] ?? 0) + 1; });
     setLabelers(Object.entries(counts).map(([n, c]) => ({ name: n, count: c })).sort((a, b) => b.count - a.count));
   }, []);
 
