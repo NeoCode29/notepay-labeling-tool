@@ -214,22 +214,24 @@ function LabelingScreen({
   };
 
   const fetchGlobalStats = useCallback(async () => {
-    const [{ data }, { count }] = await Promise.all([
-      supabase.from("ocr_labels").select("class, verified, assigned_to"),
+    const [{ data: allData }, { data: verifiedData }, { count: unassignedCount }] = await Promise.all([
+      supabase.from("ocr_labels").select("class, assigned_to"),
+      supabase.from("ocr_labels").select("class").eq("verified", true),
       supabase.from("ocr_labels").select("*", { count: "exact", head: true }).eq("verified", false).is("assigned_to", null),
     ]);
-    if (!data) return;
+    if (!allData) return;
+
     const by_class: Record<string, number> = {};
+    allData.forEach(r => { by_class[r.class] = (by_class[r.class] ?? 0) + 1; });
+
     const verified_by_class: Record<string, number> = {};
-    data.forEach(r => {
-      by_class[r.class] = (by_class[r.class] ?? 0) + 1;
-      if (r.verified) verified_by_class[r.class] = (verified_by_class[r.class] ?? 0) + 1;
-    });
-    setStats({ total: data.length, verified: data.filter(r => r.verified).length, by_class, verified_by_class });
-    setUnassigned(count ?? 0);
+    (verifiedData ?? []).forEach(r => { verified_by_class[r.class] = (verified_by_class[r.class] ?? 0) + 1; });
+
+    setStats({ total: allData.length, verified: (verifiedData ?? []).length, by_class, verified_by_class });
+    setUnassigned(unassignedCount ?? 0);
 
     const counts: Record<string, number> = {};
-    data.forEach(r => { if (r.assigned_to && !r.verified) counts[r.assigned_to] = (counts[r.assigned_to] ?? 0) + 1; });
+    allData.forEach(r => { if (r.assigned_to) counts[r.assigned_to] = (counts[r.assigned_to] ?? 0) + 1; });
     setLabelers(Object.entries(counts).map(([n, c]) => ({ name: n, count: c })).sort((a, b) => b.count - a.count));
   }, []);
 
@@ -452,8 +454,8 @@ function LabelingScreen({
   }, []);
 
   useEffect(() => {
-    if (activeNav === "export") loadExportPreview();
-  }, [activeNav, loadExportPreview]);
+    if (activeNav === "export") { fetchGlobalStats(); loadExportPreview(); }
+  }, [activeNav, fetchGlobalStats, loadExportPreview]);
 
   const goNext = () => setIndex(i => Math.min(rows.length - 1, i + 1));
   const goPrev = () => setIndex(i => Math.max(0, i - 1));
