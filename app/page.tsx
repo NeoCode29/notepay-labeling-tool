@@ -251,6 +251,25 @@ function LabelingScreen({
     setLabelers(Object.entries(counts).map(([n, c]) => ({ name: n, count: c })).sort((a, b) => b.count - a.count));
   }, []);
 
+  // Restore batch yang sudah di-claim setelah reload
+  useEffect(() => {
+    if (!name) return;
+    supabase
+      .from("ocr_labels")
+      .select("*")
+      .eq("assigned_to", name)
+      .eq("verified", false)
+      .order("id")
+      .then(({ data }) => {
+        if (data?.length) {
+          setRows(data);
+          setBatchTotal(t => Math.max(t, data.length));
+          setActiveNav("labeling");
+        }
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name]);
+
   useEffect(() => { fetchGlobalStats(); }, [fetchGlobalStats]);
   useEffect(() => {
     if (rows[index]) setInput(rows[index].label ?? "");
