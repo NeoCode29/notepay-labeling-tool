@@ -365,9 +365,20 @@ function LabelingScreen({
 
   const loadVerified = useCallback(async () => {
     setVerifiedLoading(true);
-    const { data } = await supabase
-      .from("ocr_labels").select("*").eq("verified", true).order("updated_at", { ascending: false });
-    setVerifiedRows(data ?? []);
+    const PAGE = 1000;
+    const all: OcrLabel[] = [];
+    let from = 0;
+    while (true) {
+      const { data } = await supabase
+        .from("ocr_labels").select("*").eq("verified", true)
+        .order("updated_at", { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (!data?.length) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    setVerifiedRows(all);
     setVerifiedLoading(false);
   }, []);
 
@@ -418,13 +429,28 @@ function LabelingScreen({
     a.click();
   };
 
+  // Fetch semua data verified dengan pagination — mengatasi limit 1000 Supabase
+  const fetchAllVerified = async (cls?: string): Promise<OcrLabel[]> => {
+    const PAGE = 1000;
+    const all: OcrLabel[] = [];
+    let from = 0;
+    while (true) {
+      let q = supabase.from("ocr_labels").select("*").eq("verified", true).order("id").range(from, from + PAGE - 1);
+      if (cls) q = q.eq("class", cls);
+      const { data } = await q;
+      if (!data?.length) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return all;
+  };
+
   const exportCSV = async (cls?: string) => {
     setExporting(true);
-    let q = supabase.from("ocr_labels").select("*").eq("verified", true);
-    if (cls) q = q.eq("class", cls);
-    const { data } = await q;
+    const data = await fetchAllVerified(cls);
     setExporting(false);
-    if (!data?.length) { showToast("Belum ada data verified", "error"); return; }
+    if (!data.length) { showToast("Belum ada data verified", "error"); return; }
     const headers = ["filepath", "label", "class"];
     const csv = [
       headers.join(","),
@@ -440,10 +466,8 @@ function LabelingScreen({
 
   const exportZIP = async (cls?: string) => {
     if (zipProgress) return;
-    let q = supabase.from("ocr_labels").select("*").eq("verified", true);
-    if (cls) q = q.eq("class", cls);
-    const { data } = await q;
-    if (!data?.length) { showToast("Belum ada data verified", "error"); return; }
+    const data = await fetchAllVerified(cls);
+    if (!data.length) { showToast("Belum ada data verified", "error"); return; }
 
     const date = new Date().toISOString().slice(0, 10);
     const zipName = cls ? `ocr_${cls}_${date}` : `ocr_dataset_${date}`;
